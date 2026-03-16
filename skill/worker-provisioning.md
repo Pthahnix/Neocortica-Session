@@ -6,16 +6,26 @@ Fully autonomous SOP — CC handles everything from pod creation to cleanup via 
 
 - RunPod MCP server configured and available
 - neocortica-relay MCP server configured and available
+- `.env` file in project root with required credentials (see `.env` section below)
 - User provides: task description, GPU preference (default: RTX 3090)
 
-## Credentials (hardcoded for this project)
+## Credentials
+
+All secrets are stored in `.env` (gitignored, never committed). Before executing any phase, read `.env` to load values:
+
+```bash
+# Read .env into shell variables
+source .env
+```
+
+Required `.env` keys:
 
 ```
-RELAY_AUTH_TOKEN=neocortica-relay-2026
-ANTHROPIC_BASE_URL=https://api.ikuncode.cc
-ANTHROPIC_AUTH_TOKEN=sk-ocSQ8pPoUhEBEPoTmbhATNSBbDXyCZ6UBOr3au8V9QucmeJa
-ANTHROPIC_MODEL=claude-opus-4-6
-RELAY_REPO_URL=https://github.com/Pthahnix/neocortica-relay.git
+RELAY_AUTH_TOKEN=<bearer token for worker HTTP auth>
+ANTHROPIC_BASE_URL=<API base URL>
+ANTHROPIC_AUTH_TOKEN=<API auth token>
+ANTHROPIC_MODEL=<model name>
+RELAY_REPO_URL=<git clone URL for neocortica-relay>
 ```
 
 ## Phase 1: Create Pod
@@ -44,6 +54,11 @@ CC executes all commands via Bash tool using SSH. Run each block as a separate `
 **Important**: RunPod pods have SSH access as root. The SSH command format is:
 ```bash
 ssh -o StrictHostKeyChecking=no root@<pod-ip> -p <ssh-port> '<command>'
+```
+
+**First**: Read `.env` to get credential values for use in SSH commands:
+```bash
+source .env
 ```
 
 ### Step 2.1: Create cc user + install Claude CLI
@@ -85,20 +100,20 @@ node -v && npm -v
 ### Step 2.4: Clone relay + install deps + create workspace dirs
 
 ```bash
-ssh -o StrictHostKeyChecking=no root@<pod-ip> -p <ssh-port> '
+ssh -o StrictHostKeyChecking=no root@<pod-ip> -p <ssh-port> "
 cd /workspace
-git clone https://github.com/Pthahnix/neocortica-relay.git 2>/dev/null || (cd neocortica-relay && git pull)
+git clone ${RELAY_REPO_URL} 2>/dev/null || (cd neocortica-relay && git pull)
 cd neocortica-relay && npm install
 mkdir -p /workspace/inbox /workspace/outbox /workspace/experiment /workspace/supervisor
-'
+"
 ```
 
 ### Step 2.5: Start worker server in tmux
 
 ```bash
-ssh -o StrictHostKeyChecking=no root@<pod-ip> -p <ssh-port> '
-tmux new-session -d -s relay "cd /workspace/neocortica-relay && RELAY_AUTH_TOKEN=neocortica-relay-2026 RELAY_PORT=8080 RELAY_WORKSPACE=/workspace npx tsx src/worker/server.ts"
-'
+ssh -o StrictHostKeyChecking=no root@<pod-ip> -p <ssh-port> "
+tmux new-session -d -s relay \"cd /workspace/neocortica-relay && RELAY_AUTH_TOKEN=${RELAY_AUTH_TOKEN} RELAY_PORT=8080 RELAY_WORKSPACE=/workspace npx tsx src/worker/server.ts\"
+"
 ```
 
 ### Step 2.6: Verify worker is running
@@ -126,14 +141,16 @@ If health check fails, wait 10s and retry (max 3 attempts). Worker server may ne
 
 ## Phase 4: Dispatch Task
 
+Use values from `.env` (already sourced):
+
 ```
 task_dispatch:
   workerId: "<w-xxx>"
   experimentPlan: "<user's task in markdown>"
   checkpoints: ["run"]
-  apiKey: "sk-ocSQ8pPoUhEBEPoTmbhATNSBbDXyCZ6UBOr3au8V9QucmeJa"
-  baseUrl: "https://api.ikuncode.cc"
-  model: "claude-opus-4-6"
+  apiKey: "${ANTHROPIC_AUTH_TOKEN}"
+  baseUrl: "${ANTHROPIC_BASE_URL}"
+  model: "${ANTHROPIC_MODEL}"
 ```
 
 ## Phase 5: Monitor & Collect Results

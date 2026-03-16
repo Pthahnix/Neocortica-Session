@@ -56,13 +56,6 @@ export RELAY_AUTH_TOKEN="${RELAY_AUTH_TOKEN:-}"
 export RELAY_PORT="${RELAY_PORT:-8080}"
 export RELAY_WORKSPACE="/workspace"
 
-# Write CC env config for the spawned CC process
-cat > /workspace/.cc-env << CCENV
-ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
-ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
-ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
-CCENV
-
 echo "Worker starting on port $RELAY_PORT..."
 echo "Workspace: $RELAY_WORKSPACE"
 
