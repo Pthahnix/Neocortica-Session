@@ -1,0 +1,22 @@
+{
+  "name": "neocortica-relay",
+  "version": "0.1.0",
+  "description": "MCP server + remote worker for cross-device Claude Code agent coordination",
+  "type": "module",
+  "scripts": {
+    "mcp": "tsx src/local/mcp_server.ts",
+    "worker": "tsx src/worker/server.ts",
+    "test": "tsx --test .test/**/*.test.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "express": "^5.1.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
