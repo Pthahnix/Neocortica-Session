@@ -1,22 +1,23 @@
 {
-  "name": "neocortica-relay",
+  "name": "neocortica-session",
   "version": "0.1.0",
-  "description": "MCP server + remote worker for cross-device Claude Code agent coordination",
+  "description": "CC session sharing for distributed experiment execution",
   "type": "module",
   "scripts": {
-    "mcp": "tsx src/local/mcp_server.ts",
-    "worker": "tsx src/worker/server.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "teleport": "tsx src/cli/teleport.ts",
+    "return": "tsx src/cli/return.ts",
     "test": "tsx --test .test/**/*.test.ts",
     "build": "tsc"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "express": "^5.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
-  }
+  },
+  "license": "Apache-2.0"
 }
