@@ -6,6 +6,7 @@ import { hostname, platform } from 'node:os'
 import { promisify } from 'node:util'
 
 import type { SessionMeta } from './types.js'
+import { validateSessionMeta } from './types.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -14,7 +15,7 @@ const execFileAsync = promisify(execFile)
  * e.g. C:\Users\foo -> /c/Users/foo
  * On non-Windows platforms, returns the path unchanged.
  */
-function toPosixPath(p: string): string {
+export function toPosixPath(p: string): string {
   if (platform() === 'win32') {
     const backslash = String.fromCharCode(92)
     return p.replace(/^([A-Za-z]):/, (_: string, d: string) => '/' + d.toLowerCase()).split(backslash).join('/')
@@ -120,7 +121,7 @@ export async function unpackSession(
     throw new Error('metadata.json not found in archive')
   }
 
-  const meta: SessionMeta = JSON.parse(await readFile(metaPath, 'utf-8'))
+  const meta: SessionMeta = validateSessionMeta(JSON.parse(await readFile(metaPath, 'utf-8')))
 
   return { meta, sessionDir: tempDir }
 }

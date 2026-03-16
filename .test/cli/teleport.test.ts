@@ -6,6 +6,7 @@ import {
   buildRemoteUnpackCommands,
   buildTmuxLaunchCommand,
   parsePodSsh,
+  assertSafeShellArg,
 } from '../../src/cli/teleport.js'
 
 describe('parsePodSsh', () => {
@@ -21,6 +22,43 @@ describe('parsePodSsh', () => {
     assert.equal(result.user, 'root')
     assert.equal(result.host, '10.0.0.1')
     assert.equal(result.port, '2222')
+  })
+})
+
+describe('assertSafeShellArg', () => {
+  it('accepts valid alphanumeric strings', () => {
+    assert.doesNotThrow(() => assertSafeShellArg('abc-123_test.session', 'test'))
+  })
+
+  it('accepts hashes from computeProjectHash', () => {
+    assert.doesNotThrow(() => assertSafeShellArg('-workspace', 'hash'))
+    assert.doesNotThrow(() => assertSafeShellArg('D--NEOCORTICA', 'hash'))
+  })
+
+  it('rejects strings with spaces', () => {
+    assert.throws(
+      () => assertSafeShellArg('hello world', 'test'),
+      /Unsafe test.*invalid characters/
+    )
+  })
+
+  it('rejects strings with shell metacharacters', () => {
+    assert.throws(() => assertSafeShellArg('foo;rm -rf /', 'id'), /Unsafe/)
+    assert.throws(() => assertSafeShellArg('$(whoami)', 'id'), /Unsafe/)
+    assert.throws(() => assertSafeShellArg('foo`cmd`', 'id'), /Unsafe/)
+    assert.throws(() => assertSafeShellArg('a&b', 'id'), /Unsafe/)
+    assert.throws(() => assertSafeShellArg('a|b', 'id'), /Unsafe/)
+    assert.throws(() => assertSafeShellArg("a'b", 'id'), /Unsafe/)
+    assert.throws(() => assertSafeShellArg('a"b', 'id'), /Unsafe/)
+  })
+
+  it('rejects empty strings', () => {
+    assert.throws(() => assertSafeShellArg('', 'id'), /Unsafe/)
+  })
+
+  it('rejects strings with path separators', () => {
+    assert.throws(() => assertSafeShellArg('../etc/passwd', 'id'), /Unsafe/)
+    assert.throws(() => assertSafeShellArg('foo/bar', 'id'), /Unsafe/)
   })
 })
 
@@ -46,6 +84,20 @@ describe('buildRemoteUnpackCommands', () => {
     assert.ok(cmds.includes('tar xzf'))
     assert.ok(cmds.includes('.claude/projects/-workspace'))
   })
+
+  it('rejects unsafe targetHash', () => {
+    assert.throws(
+      () => buildRemoteUnpackCommands('foo;rm -rf /', 'session-1'),
+      /Unsafe/
+    )
+  })
+
+  it('rejects unsafe sessionId', () => {
+    assert.throws(
+      () => buildRemoteUnpackCommands('-workspace', '$(whoami)'),
+      /Unsafe/
+    )
+  })
 })
 
 describe('buildTmuxLaunchCommand', () => {
@@ -55,5 +107,12 @@ describe('buildTmuxLaunchCommand', () => {
     assert.ok(cmd.includes('tmux new-session'))
     assert.ok(cmd.includes('cd /workspace'))
     assert.ok(cmd.includes('claude --resume test-session --fork-session'))
+  })
+
+  it('rejects unsafe sessionId', () => {
+    assert.throws(
+      () => buildTmuxLaunchCommand('foo;bar', '/workspace'),
+      /Unsafe/
+    )
   })
 })

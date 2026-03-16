@@ -14,6 +14,20 @@ describe('buildRemotePackCommand', () => {
     assert.ok(cmd.includes('my-session.jsonl'))
     assert.ok(cmd.includes('sessions-index.json'))
   })
+
+  it('rejects unsafe targetHash', () => {
+    assert.throws(
+      () => buildRemotePackCommand('foo;rm -rf /', 'my-session'),
+      /Unsafe/
+    )
+  })
+
+  it('rejects unsafe sessionId', () => {
+    assert.throws(
+      () => buildRemotePackCommand('-workspace', '$(whoami)'),
+      /Unsafe/
+    )
+  })
 })
 
 describe('buildScpDownloadCommand', () => {

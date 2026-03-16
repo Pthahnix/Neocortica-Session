@@ -1,14 +1,22 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { join } from 'node:path'
-import { tmpdir, homedir } from 'node:os'
+import { tmpdir } from 'node:os'
+import { writeFile, rm } from 'node:fs/promises'
 
 import { packSession } from '../core/packer.js'
 import { remapPaths } from '../core/remapper.js'
-import { unpackSession } from '../core/packer.js'
+import { unpackSession, toPosixPath } from '../core/packer.js'
 import { computeProjectHash, CC_PROJECTS_DIR } from '../core/types.js'
+import { listSessions } from '../core/registry.js'
 
 const execFileAsync = promisify(execFile)
+
+export function assertSafeShellArg(value: string, name: string): void {
+  if (!/^[a-zA-Z0-9._-]+$/.test(value)) {
+    throw new Error(`Unsafe ${name}: contains invalid characters: ${value}`)
+  }
+}
 
 export interface PodSsh {
   user: string
@@ -44,6 +52,8 @@ export function buildRemoteUnpackCommands(
   targetHash: string,
   sessionId: string
 ): string {
+  assertSafeShellArg(targetHash, 'targetHash')
+  assertSafeShellArg(sessionId, 'sessionId')
   const ccDir = `~/.claude/projects/${targetHash}`
   const now = Date.now()
   const isoNow = new Date().toISOString()
@@ -78,6 +88,7 @@ export function buildTmuxLaunchCommand(
   sessionId: string,
   workspaceDir: string
 ): string {
+  assertSafeShellArg(sessionId, 'sessionId')
   return `tmux kill-session -t neocortica 2>/dev/null; tmux new-session -d -s neocortica "cd ${workspaceDir} && claude --resume ${sessionId} --fork-session"`
 }
 
@@ -114,7 +125,6 @@ export async function teleport(
     let sessionId = options.sessionId
     if (!sessionId) {
       // Read index to find latest
-      const { listSessions } = await import('../core/registry.js')
       const sessions = await listSessions(ccProjectDir)
       if (sessions.length === 0) throw new Error('No sessions found')
       const sorted = [...sessions].sort(
@@ -136,14 +146,12 @@ export async function teleport(
     }
 
     // Update metadata
-    const { writeFile } = await import('node:fs/promises')
     const updatedMeta = { ...meta, projectDir: workspaceDir }
     await writeFile(join(sessionDir, 'metadata.json'), JSON.stringify(updatedMeta, null, 2))
 
     // Repack
-    await execFileAsync('tar', ['czf', archivePath, '-C', sessionDir, '.'])
-    const { rm: rmDir } = await import('node:fs/promises')
-    await rmDir(unpackDir, { recursive: true, force: true })
+    await execFileAsync('tar', ['czf', toPosixPath(archivePath), '-C', toPosixPath(sessionDir), '.'])
+    await rm(unpackDir, { recursive: true, force: true })
 
     options.sessionId = sessionId
   }

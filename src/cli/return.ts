@@ -2,12 +2,13 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { mkdir, writeFile, rm } from 'node:fs/promises'
 
-import { unpackSession } from '../core/packer.js'
 import { remapPaths } from '../core/remapper.js'
 import { registerSession } from '../core/registry.js'
 import { computeProjectHash, CC_PROJECTS_DIR } from '../core/types.js'
-import { parsePodSsh, sshCommand, type PodSsh } from './teleport.js'
+import type { SessionMeta } from '../core/types.js'
+import { parsePodSsh, sshCommand, assertSafeShellArg, type PodSsh } from './teleport.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -15,6 +16,8 @@ export function buildRemotePackCommand(
   targetHash: string,
   sessionId: string
 ): string {
+  assertSafeShellArg(targetHash, 'targetHash')
+  assertSafeShellArg(sessionId, 'sessionId')
   const ccDir = `~/.claude/projects/${targetHash}`
   return `cd ${ccDir} && tar czf /tmp/neocortica-session-return.tar.gz ${sessionId}.jsonl ${sessionId}/ sessions-index.json 2>/dev/null || tar czf /tmp/neocortica-session-return.tar.gz ${sessionId}.jsonl sessions-index.json`
 }
@@ -44,7 +47,6 @@ export async function sessionReturn(
   // Determine session ID on pod
   let sessionId = options.sessionId
   if (!sessionId) {
-    // Read remote sessions-index.json to find latest
     console.log(`[return] Finding latest session on pod...`)
     const findCmd = sshCommand(ssh, `cat ~/.claude/projects/${remoteHash}/sessions-index.json 2>/dev/null || echo '{"entries":[]}'`)
     const { stdout } = await execFileAsync(findCmd[0], findCmd.slice(1))
@@ -57,6 +59,9 @@ export async function sessionReturn(
     )
     sessionId = sorted[0].sessionId
   }
+
+  assertSafeShellArg(sessionId!, 'sessionId')
+  assertSafeShellArg(remoteHash, 'remoteHash')
 
   console.log(`[return] Packing session ${sessionId} on pod...`)
 
@@ -71,15 +76,28 @@ export async function sessionReturn(
   const scpCmd = buildScpDownloadCommand(ssh, localArchive)
   await execFileAsync(scpCmd[0], scpCmd.slice(1))
 
-  // 3. Unpack + remap + register locally
+  // 3. Extract, create synthetic metadata, remap, register
+  // Pod archive does NOT include metadata.json, so we skip unpackSession()
+  // and manually extract + create synthetic metadata instead.
   console.log(`[return] Importing session locally...`)
   const unpackDir = join(tmpdir(), `neocortica-return-unpack-${Date.now()}`)
-  const { meta, sessionDir } = await unpackSession(localArchive, unpackDir)
+  await mkdir(unpackDir, { recursive: true })
+  await execFileAsync('tar', ['xzf', localArchive, '-C', unpackDir])
+
+  // Create synthetic metadata.json (pod archive doesn't include one)
+  const meta: SessionMeta = {
+    sessionId: sessionId!,
+    projectDir: remoteProjectDir,
+    platform: 'linux',
+    hostname: ssh.host,
+    timestamp: new Date().toISOString(),
+    messageCount: 0,
+  }
+  await writeFile(join(unpackDir, 'metadata.json'), JSON.stringify(meta, null, 2))
 
   // Remap from remote to local
-  const sourceDir = meta.projectDir || remoteProjectDir
-  if (sourceDir !== localProjectDir) {
-    await remapPaths(sessionDir, sourceDir, localProjectDir)
+  if (remoteProjectDir !== localProjectDir) {
+    await remapPaths(unpackDir, remoteProjectDir, localProjectDir)
   }
 
   // Register
@@ -87,10 +105,13 @@ export async function sessionReturn(
   const targetCCDir = join(CC_PROJECTS_DIR(), localHash)
   await registerSession(
     targetCCDir,
-    sessionDir,
+    unpackDir,
     sessionId!,
     { ...meta, projectDir: localProjectDir }
   )
+
+  // Cleanup temp dir
+  await rm(unpackDir, { recursive: true, force: true })
 
   console.log(`\n[ok] Session returned! Resume with:`)
   console.log(`  claude --resume ${sessionId}`)
