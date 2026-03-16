@@ -1,132 +1,88 @@
-# neocortica-relay
+# neocortica-session
 
-Cross-device Claude Code agent coordination. A local MCP server dispatches experiment tasks to remote worker pods, tracks progress, and relays feedback — all through Claude Code's native tool interface.
+CC session sharing for distributed experiment execution. Export a Claude Code session (with full research context from Stages 1-4), transfer it to a remote GPU pod, resume it there, and return results.
+
+Inspired by [cc-go-on](https://github.com/Johnixr/cc-go-on).
 
 ## Architecture
 
 ```
-┌──────────────────┐         HTTP          ┌──────────────────┐
-│  Local Claude Code│◄──────────────────────►│  Worker (RunPod)  │
-│                  │   HttpTransport        │                  │
-│  MCP Server      │   Bearer token auth   │  Express Server   │
-│  (stdio)         │   Retry + timeout     │  TaskExecutor     │
-│                  │                       │  ProcessManager   │
-│  9 tools         │                       │  7 endpoints      │
-│  WorkerRegistry  │                       │  StateStore       │
-│  TaskTracker     │                       │  File IPC         │
-└──────────────────┘                       └──────────────────┘
+┌──────────────────────────────────────────────────────┐
+│ MCP Server (stdio)         — local session ops       │
+│   session_export           → pack session as tar.gz  │
+│   session_import           → unpack + remap + register│
+│   session_list             → list sessions for project│
+├──────────────────────────────────────────────────────┤
+│ Core                       — shared logic            │
+│   packer                   → pack/unpack archives    │
+│   remapper                 → cross-platform paths    │
+│   registry                 → sessions-index.json CRUD│
+│   types                    → SessionMeta, hash       │
+├──────────────────────────────────────────────────────┤
+│ CLI                        — remote pod operations   │
+│   teleport                 → scp + unpack + tmux     │
+│   return                   → remote pack + scp back  │
+├──────────────────────────────────────────────────────┤
+│ Skill SOP                  — full lifecycle          │
+│   session-teleport.md      → 7-phase pod orchestration│
+└──────────────────────────────────────────────────────┘
 ```
-
-Same codebase, two entry points:
-- `npm run mcp` — Local MCP server (stdio), registers 9 tools for Claude Code
-- `npm run worker` — Remote HTTP server on RunPod pods
 
 ## Quick Start
 
 ```bash
 npm install
-
-# Local side — add to Claude Code MCP config
-npm run mcp
-
-# Worker side — run on RunPod pod
-RELAY_AUTH_TOKEN=your-secret npm run worker
 ```
 
-### MCP Configuration
+### MCP Server Configuration
 
-Add to your Claude Code `.mcp.json`:
+Add to your `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "neocortica-relay": {
+    "neocortica-session": {
       "command": "npx",
-      "args": ["tsx", "src/local/mcp_server.ts"],
-      "cwd": "D:\\NEOCORTICA-RELAY",
-      "env": {
-        "RELAY_AUTH_TOKEN": "your-secret",
-        "RELAY_DATA_DIR": "~/.neocortica-relay"
-      }
+      "args": ["tsx", "src/mcp/server.ts"],
+      "cwd": "/path/to/neocortica-relay"
     }
   }
 }
 ```
 
-## MCP Tools
+### CLI Usage
 
-### Worker Management
-
-| Tool | Description |
-|------|-------------|
-| `worker_register` | Register a remote worker URL, health check before registering |
-| `worker_unregister` | Remove a worker by ID |
-| `worker_list` | List all registered workers with health status |
-
-### Task Management
-
-| Tool | Description |
-|------|-------------|
-| `task_dispatch` | Send experiment plan + checkpoints to a worker |
-| `task_status` | Get current task status from worker |
-| `task_report` | Get latest checkpoint report (awaiting approval) |
-| `task_feedback` | Send feedback: continue / revise / abort |
-| `task_files` | Download a file from worker experiment directory |
-| `task_abort` | Abort a running task |
-
-## Worker HTTP Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check (no auth) |
-| POST | `/task` | Dispatch new task |
-| GET | `/task/:id/status` | Task status |
-| GET | `/task/:id/report` | Checkpoint report |
-| POST | `/task/:id/feedback` | Send feedback |
-| GET | `/task/:id/files/*filepath` | Download file |
-| POST | `/task/:id/abort` | Abort task |
-
-## Worker State Machine
-
-```
-idle → initializing → running ⇄ awaiting_approval → completed/failed/aborted
+**Teleport** a session to a remote pod:
+```bash
+npx tsx src/cli/teleport.ts root@10.0.0.1:22222
+npx tsx src/cli/teleport.ts root@10.0.0.1:22222 --session <session-id> --project /my/project
 ```
 
-## Environment Variables
+**Return** a session from a pod:
+```bash
+npx tsx src/cli/return.ts root@10.0.0.1:22222
+```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RELAY_AUTH_TOKEN` | `""` | Bearer token for worker auth |
-| `RELAY_DATA_DIR` | `~/.neocortica-relay` | Local persistence directory |
-| `RELAY_PORT` | `7420` | Worker HTTP port |
-| `RELAY_WORKSPACE` | `/workspace` | Worker workspace root |
+## User Experience
+
+```
+Local CC (research complete) → Export session → Transfer to GPU pod
+  → Remote CC resumes with full context → Run experiment
+    → Return session → Local CC imports results
+```
+
+1. User completes Stages 1-4 of research locally
+2. Session teleport creates a pod, exports session, transfers it
+3. User SSH + `tmux attach` to interact with CC on the pod
+4. When done, session return brings results back
+5. Pod is cleaned up automatically
 
 ## Testing
 
 ```bash
-npm test                    # All 134 tests
-npx tsx --test .test/e2e/   # E2E integration only
-```
-
-## Project Structure
-
-```
-src/
-  shared/types.ts           # Shared types + validation
-  worker/
-    state_store.ts          # Task state persistence
-    process_manager.ts      # CC subprocess lifecycle + file IPC
-    task_executor.ts        # State machine orchestrator
-    server.ts               # Express 5 HTTP server
-  local/
-    worker_registry.ts      # Worker connection management
-    task_tracker.ts         # Local task state aggregation
-    http_transport.ts       # HTTP client with retry/timeout
-    mcp_server.ts           # MCP server entry point
-    tools/                  # 9 MCP tool handlers
-.test/                      # Mirror structure for tests
+npx tsx --test .test/**/*.test.ts
 ```
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0 License](LICENSE)
