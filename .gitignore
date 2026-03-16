@@ -4,6 +4,8 @@ logs
 
 # Project-specific
 CLAUDE.md
+.mcp.json
+.relay-data/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
