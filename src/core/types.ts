@@ -34,6 +34,19 @@ export interface SessionIndexEntry {
   isSidechain: boolean
 }
 
+export interface TeleportContext {
+  host: string
+  port: number
+  sessionId: string
+  ccVersion: string
+  projectDir: string
+  workspaceDir: string
+  sessionPath: string
+  memoryDir: string | null
+  projectHash: string
+  remoteHash: string
+}
+
 // ── Validation ──
 
 const SessionMetaSchema = z.object({
