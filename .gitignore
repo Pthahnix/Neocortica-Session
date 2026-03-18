@@ -6,6 +6,7 @@ logs
 CLAUDE.md
 .mcp.json
 .relay-data/
+docs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
