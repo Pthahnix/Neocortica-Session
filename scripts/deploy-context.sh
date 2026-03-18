@@ -36,11 +36,12 @@ echo "[deploy-context] Project hash: $PROJECT_HASH"
 # Create CC project directory
 mkdir -p "$MEMORY_TARGET"
 
-# Deploy memory files if they exist
-if [ -d "$REPO_DIR/memory" ] && [ "$(ls -A "$REPO_DIR/memory" 2>/dev/null)" ]; then
+# Deploy memory files if they exist (exclude .gitkeep and other dotfiles)
+MEMORY_FILES=$(find "$REPO_DIR/memory" -maxdepth 1 -type f ! -name '.*' 2>/dev/null)
+if [ -n "$MEMORY_FILES" ]; then
   echo "[deploy-context] Deploying memory files..."
-  cp "$REPO_DIR/memory/"* "$MEMORY_TARGET/"
-  echo "[deploy-context] Deployed $(ls "$REPO_DIR/memory" | wc -l) memory file(s)"
+  echo "$MEMORY_FILES" | xargs -I{} cp {} "$MEMORY_TARGET/"
+  echo "[deploy-context] Deployed $(echo "$MEMORY_FILES" | wc -l) memory file(s)"
 else
   echo "[deploy-context] No memory files to deploy"
 fi
